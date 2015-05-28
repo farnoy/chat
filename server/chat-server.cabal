@@ -11,8 +11,8 @@ library
   build-depends: base >=4.8 && <4.9, groundhog,
     groundhog-th,
     groundhog-postgresql,
-    servant,
-    servant-server,
+    servant ==0.4.0,
+    servant-server ==0.4.0,
     wai,
     warp,
     mtl,
@@ -46,8 +46,8 @@ executable server
   hs-source-dirs: bin
   build-depends:
     base >=4.8 && <4.9,
-    servant,
-    servant-server,
+    servant ==0.4.0,
+    servant-server ==0.4.0,
     groundhog,
     groundhog-th,
     groundhog-postgresql,

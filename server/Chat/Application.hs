@@ -23,6 +23,7 @@ import Control.Monad
 import Control.Monad.STM
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
+import Control.Monad.Trans.Reader
 import Data.Aeson
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Conversion
@@ -42,6 +43,23 @@ import Database.PostgreSQL.Simple.Internal
 import GHC.Generics
 import Network.Wai
 import Servant
+
+data Env = Env { db :: Pool Postgresql, queue :: TQueue Text }
+type Handler a = ReaderT Env (EitherT ServantErr IO) a
+
+withDb f = do
+  env <- ask
+  withResource (db env) $ runDbConn f
+
+announce msg = do
+  env <- ask
+  return . atomically . writeTQueue (queue env) $ msg
+
+handlerToEither' :: Env -> ReaderT Env (EitherT ServantErr IO) a -> EitherT ServantErr IO a
+handlerToEither' e h = runReaderT h e
+
+handlerToEither :: Env -> (ReaderT Env (EitherT ServantErr IO) :~> EitherT ServantErr IO)
+handlerToEither e = Nat (handlerToEither' e)
 
 newtype UserDay = UserDay Day deriving(Eq, Show)
 
@@ -101,21 +119,21 @@ type Api =
 
 
 server :: Pool Postgresql -> TQueue Text -> Server Api
-server pool queue = (channelsList :<|> channelsCreate :<|> messagesIndex :<|> messagesCreate)
-              :<|> signup :<|> signin
+server pool queue = enter (handlerToEither (Env pool queue)) ((channelsList :<|> channelsCreate :<|> messagesIndex :<|> messagesCreate) :<|> signup :<|> signin)
       where channelsList = do
-                             channels <- withResource pool $ runDbConn $
+                             channels <- withDb $
                                project (AutoKeyField, ChannelConstructor) CondEmpty
                              return $ fmap (uncurry ChannelsApiResult) channels
+            channelsCreate :: Text -> Channel -> ReaderT Env (EitherT ServantErr IO) ApiStatusResult
             channelsCreate c input = do
                                     liftIO $ print c
                                     r <- liftIO
                                            ((try $
-                                             do withResource pool $ runDbConn $ insert_ input
+                                             do withResource pool $ runDbConn  $ insert_ input
                                                 return (ApiStatusResult True T.empty))
                                                 :: IO (Either SqlError ApiStatusResult))
 
-                                    case r of
+                                    lift $ case r of
                                       Left _ -> left err500
                                       Right r' -> return r'
             messagesIndex cid = do
@@ -146,14 +164,16 @@ server pool queue = (channelsList :<|> channelsCreate :<|> messagesIndex :<|> me
 
                                     liftIO $ atomically $ writeTQueue queue (decodeUtf8 $ toStrict $ encode res)
                                     return (ApiStatusResult True "")
+            signup :: UserInput -> ReaderT Env (EitherT ServantErr IO) (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
             signup (UserInput l p) = do
-                                      res <- liftIO ((try $withResource pool $ runDbConn $
+                                      res <- liftIO ((try $ withResource pool $ runDbConn $
                                         insert (User l (toByteString' p)))
                                         :: IO (Either SqlError (Key User BackendSpecific)))
 
                                       case res of
                                         Right (UserKey (PersistInt64 k)) -> return $ addHeader (sessionCookie k) (ApiStatusResult True "")
                                         _ -> return $ addHeader "" (ApiStatusResult False "Login taken")
+            signin :: UserInput -> ReaderT Env (EitherT ServantErr IO) (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
             signin (UserInput l p) = do
                                       user <- withResource pool $ runDbConn $ do
                                         project AutoKeyField ((LoginField ==. l) &&. (EncryptedPasswordField ==. (toByteString' p)))
