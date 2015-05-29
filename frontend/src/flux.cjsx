@@ -90,7 +90,8 @@ class MessageStore extends Flummox.Store
     @state.messagesByChannel.has(channel)
 
   handleSetMessages: ({channel, messages}) ->
-    state = @state.messagesByChannel.set(channel, Immutable.List(messages))
+    messages = Immutable.List(messages).sortBy((chan) -> new Date(chan.timestamp).getTime())
+    state = @state.messagesByChannel.set(channel, messages)
     @setState(messagesByChannel: Immutable.Map(state))
     console.log "handled set messages", state
 

@@ -136,7 +136,7 @@ server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> 
             messagesIndex limit cid = do
                                     messages <- withResource pool $ runDbConn $ do
                                       (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                                      project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `limitTo` clamp limit
+                                      project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `orderBy` [Asc TimestampField] `limitTo` clamp limit
 
                                     let authorIds = nub . fmap (\(_, m) -> authorKey m) $ messages
                                     let conditions = foldr (\a ac -> ac ||. (AutoKeyField ==. a)) CondEmpty authorIds

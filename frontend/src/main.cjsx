@@ -29,7 +29,8 @@ MainView = React.createClass
             <div style={@messageListStyle} ref="scrollBox">
               <FluxComponent connectToStores={["channels", "messages"]}
                              stateGetter={([channelStore, messageStore]) ->
-                               {messages: messageStore.getMessages(channelStore.getActiveChannel())} }>
+                               messages = messageStore.getMessages(channelStore.getActiveChannel())
+                               {messages: messages.slice(-100)}}>
                 <MessageList />
               </FluxComponent>
             </div>
