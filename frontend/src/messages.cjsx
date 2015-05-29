@@ -25,6 +25,9 @@ MessageForm = React.createClass
       <input style={@inputStyle} placeholder="Message..." type="text" value={@state.value} onChange={@onChange} />
     </form>
 
+  contextTypes:
+    flux: React.PropTypes.object.isRequired
+
   inputStyle:
     borderRadius: "10px"
     border: "1px solid #ccc"
@@ -35,16 +38,11 @@ MessageForm = React.createClass
     @setState({value: event.target.value})
 
   onSubmit: (event) ->
-    fetch "/api/channels/#{@props.activeChannel}/messages",
-      method: "post",
-      headers: {"Content-Type": "application/json"}
-      body: JSON.stringify({body: @state.value})
-      credentials: "include"
-    .then (response) =>
-      if response.ok
-        # before WS we used to fetch this
-        # @props.modifiedCallback(@props.activeChannel)
-        @setState(value: "")
+    @context.flux.getActions("messages").createMessage
+      channel: @props.activeChannel
+      message:
+        body: @state.value
+    .then => @setState(value: "")
 
     event.preventDefault()
 

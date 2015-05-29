@@ -6,9 +6,8 @@ ChannelList = React.createClass
     <ol style={@listStyle}>
       {_.map(@props.channels, (channel) =>
         <ChannelListItem key={channel.id}
-                         name={channel.name}
-                         active={channel.name == @props.active}
-                         activate={@props.activate} />)
+                         {...channel}
+                         active={channel.name == @props.active} />)
       }
     </ol>
 
@@ -23,15 +22,21 @@ ChannelListItem = React.createClass
         <Link to="channel" params={channel: @props.name}># {@props.name}</Link>
     </li>
 
+  contextTypes:
+    flux: React.PropTypes.object.isRequired
+
   activeStyle:
     fontWeight: "bold"
 
   onClick: (event) ->
     event.preventDefault()
-    @props.activate(@props.name)
+    @context.flux.getActions("channels").setActive(@props.name)
 
 ChannelForm = React.createClass
   getInitialState: -> {value: ""}
+
+  contextTypes:
+    flux: React.PropTypes.object.isRequired
 
   render: ->
     <form onSubmit={@onSubmit}>
@@ -43,14 +48,9 @@ ChannelForm = React.createClass
     @setState({value: event.target.value})
 
   onSubmit: (event) ->
-    fetch "/api/channels",
-      method: "post",
-      headers: {"Content-Type": "application/json"}
-      body: JSON.stringify({name: @state.value})
-      credentials: "include"
-    .then (response) =>
-      if response.ok
-        @props.modifiedCallback()
+    @context.flux.getActions("channels")
+      .createChannel(name: @state.value, id: Math.random() * 10000)
+    .then (json) => @setState(value: "")
 
     event.preventDefault()
 

@@ -10,26 +10,36 @@ Transition = require("react-router/lib/Transition")
 Navigation = require("react-router/lib/Navigation")
 {ChannelList, ChannelListItem, ChannelForm} = require("./channels")
 {MessageList, MessageListItem, MessageForm} = require("./messages")
+AppFlux = require("./flux")
+FluxComponent = require("flummox/component")
 
 MainView = React.createClass
   render: ->
     <div style={@containerStyle}>
       <div style={@sidebarStyle}>
-        <ChannelList channels={@state.channels}
-                     active={@state.activeChannel}
-                     activate={@setActiveChannel} />
-        <ChannelForm modifiedCallback={@reloadChannelData} />
+        <FluxComponent connectToStores={["channels"]}>
+          <ChannelList />
+        </FluxComponent>
+        <ChannelForm />
       </div>
 
       <div style={@mainStyle}>
-        { if @state.activeChannel?
+        { if @context.flux.getStore("channels").getActiveChannel()
           <p>Channel is: {@props.params.channel}</p>
           <div style={@messagesBoxStyle}>
             <div style={@messageListStyle} ref="scrollBox">
-              <MessageList messages={@state.messageData[@state.activeChannel]} />
+              <FluxComponent connectToStores={["channels", "messages"]}
+                             stateGetter={([channelStore, messageStore]) ->
+                               {messages: messageStore.getMessages(channelStore.getActiveChannel())} }>
+                <MessageList />
+              </FluxComponent>
             </div>
             <div style={@messageFormStyle}>
-              <MessageForm activeChannel={@state.activeChannel} />
+              <FluxComponent connectToStores={"channels"}
+                             stateGetter={(channelStore) ->
+                               {activeChannel: channelStore.getActiveChannel()} }>
+                <MessageForm />
+              </FluxComponent>
             </div>
           </div>
         }
@@ -62,7 +72,7 @@ MainView = React.createClass
     flex: "0 0 50px"
     marginTop: "20px"
 
-  getInitialState: -> {channels: [], activeChannel: null, messageData: {}}
+  getInitialState: -> {websocket: null}
 
   componentWillUpdate: (nextProps, nextState) ->
     @shouldScrollTheBox = false
@@ -83,13 +93,10 @@ MainView = React.createClass
     @state.websocket = new WebSocket("ws://localhost:8082")
     @state.websocket.onmessage = (msg) =>
       payload = JSON.parse(msg.data)
-      chan = _.find(@state.channels, "id", payload.channel_id)
-      msgData = _.cloneDeep(@state.messageData)
-      msgData[chan.name].push(payload)
-      @setState(messageData: msgData)
+      chan = @context.flux.getStore("channels").getChannelById(payload.channel_id)
+      @context.flux.getActions("messages").addMessage(channel: chan.name, message: payload)
 
     if @props.params?.channel?
-      @reloadMessageData(@props.params.channel)
       @setActiveChannel(@props.params.channel)
 
     @reloadChannelData()
@@ -100,25 +107,15 @@ MainView = React.createClass
   componentWillReceiveProps: (nextProps) ->
     @setActiveChannel(nextProps.params.channel)
 
+  contextTypes:
+    flux: React.PropTypes.object.isRequired
+
   reloadChannelData: ->
-    fetch("/api/channels", credentials: "include").then (response) ->
-      response.json()
-    .then (json) =>
-      @setState(channels: json)
+    @context.flux.getActions("channels").reloadChannels()
 
   setActiveChannel: (channel) ->
-    @setState(activeChannel: channel)
-
-    unless _.has(@state.messageData, channel)
-      @reloadMessageData(channel)
-
-  reloadMessageData: (channel) ->
-    fetch("/api/channels/#{channel}/messages", credentials: "include").then (response) ->
-      response.json()
-    .then (json) =>
-      state = @state
-      state.messageData[channel] = json
-      @setState(state)
+    @context.flux.getActions("channels").setActive(channel)
+    @context.flux.getActions("messages").preload(channel)
 
 App = React.createClass
   render: ->
@@ -129,9 +126,17 @@ App = React.createClass
           <li><Link to="signup">Sign up</Link></li>
           <li><Link to="signin">Sign in</Link></li>
         </ul>
-        <RouteHandler />
+        <FluxComponent flux={@flux}>
+          <RouteHandler />
+        </FluxComponent>
       </div>
     </div>
+
+  componentWillMount: ->
+    @flux = new AppFlux()
+    # for debugging
+    # @flux.addListener "dispatch", (payload) ->
+    # console.log("Dispatch: ", payload)
 
   styles:
     top:
