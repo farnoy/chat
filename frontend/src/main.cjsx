@@ -75,19 +75,19 @@ MainView = React.createClass
   getInitialState: -> {websocket: null}
 
   componentWillUpdate: (nextProps, nextState) ->
-    @shouldScrollTheBox = false
-    if @state?.activeChannel == nextState?.activeChannel
-      prevLength = @state?.messageData[@state?.activeChannel]?.length
-      nextLength = nextState?.messageData[nextState?.activeChannel]?.length
+    # @shouldScrollTheBox = false
+    # if @state?.activeChannel == nextState?.activeChannel
+      # prevLength = @state?.messageData[@state?.activeChannel]?.length
+      # nextLength = nextState?.messageData[nextState?.activeChannel]?.length
 
-      if nextLength > prevLength
-        node = React.findDOMNode(@refs.scrollBox)
-        @shouldScrollTheBox = node.scrollHeight - node.scrollTop - node.offsetHeight < 5
+      # if nextLength > prevLength
+        # node = React.findDOMNode(@refs.scrollBox)
+        # @shouldScrollTheBox = node.scrollHeight - node.scrollTop - node.offsetHeight < 5
 
   componentDidUpdate: ->
-    if @shouldScrollTheBox
-      node = React.findDOMNode(@refs.scrollBox)
-      node.scrollTop = node.scrollHeight
+    # if @shouldScrollTheBox
+      # node = React.findDOMNode(@refs.scrollBox)
+      # node.scrollTop = node.scrollHeight
 
   componentWillMount: ->
     @state.websocket = new WebSocket("ws://localhost:8082")
