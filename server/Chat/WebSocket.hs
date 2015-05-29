@@ -26,8 +26,8 @@ server state pending = do
     (atomically $ modifyTVar state (filter $ (/= rand) . fst))
 
     $ forever $ do
-    msg <- atomically (readTQueue queue)
-    sendTextData conn msg
+      msg <- atomically (readTQueue queue)
+      sendTextData conn msg
 
 
 broadcast :: TQueue Text -> TVar [(Integer, TQueue Text)] -> IO ()
