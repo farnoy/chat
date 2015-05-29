@@ -3,12 +3,14 @@ MessageListItem = require("./MessageListItem")
 
 module.exports = React.createClass
   render: ->
-    <ul style={@style}>
+    <div style={@style}>
       <p>Message Count: {@props.messages.count()}</p>
       {@props.messages.map (message) ->
         <MessageListItem key={message.id} {...message} />
       }
-    </ul>
+    </div>
 
   style:
     padding: 0
+    display: "flex"
+    flexFlow: "column nowrap"
