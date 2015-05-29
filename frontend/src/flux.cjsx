@@ -1,4 +1,5 @@
 Flummox = require("flummox")
+Immutable = require("immutable")
 
 class ChannelActions extends Flummox.Actions
   createChannel: ({name}) ->
@@ -80,26 +81,22 @@ class MessageStore extends Flummox.Store
     @registerAsync(message.loadMessages, null, @handleSetMessages)
     @register(message.addMessage, @handleAddMessage)
 
-    @state = {messagesByChannel: {}}
+    @state = {messagesByChannel: Immutable.Map()}
 
   getMessages: (channel) ->
-    @state.messagesByChannel[channel] || []
+    @state.messagesByChannel.get(channel, Immutable.List())
 
   hasMessages: (channel) ->
-    @state.messagesByChannel[channel]?
+    @state.messagesByChannel.has(channel)
 
   handleSetMessages: ({channel, messages}) ->
-    state = _.cloneDeep(@state.messagesByChannel)
-    state[channel] = messages
-    @setState(messagesByChannel: state)
+    state = @state.messagesByChannel.set(channel, Immutable.List(messages))
+    @setState(messagesByChannel: Immutable.Map(state))
+    console.log "handled set messages", state
 
   handleAddMessage: ({channel, message}) ->
-    state = _.cloneDeep(@state.messagesByChannel)
-    state[channel] ||= []
-    state[channel].push(message)
-    @setState(messagesByChannel: state)
-    console.log "handled add message", state
-
+    state = @state.messagesByChannel.update(channel, Immutable.List(), (list) -> list.push(message))
+    @setState(messagesByChannel: Immutable.Map(state))
 
 class ChannelStore extends Flummox.Store
   constructor: (flux) ->
@@ -110,21 +107,22 @@ class ChannelStore extends Flummox.Store
     @register(channel.setChannels, @handleSetChannels)
     @register(channel.setActive, @handleSetActive)
 
-    @state = {channels: [], active: null}
+    @state = {channels: Immutable.List(), active: null}
 
-  getChannelById: (id) -> _.find(@state.channels, "id", id)
+  getChannelById: (id) -> @state.channels.find((c) -> c.id == id)
 
   getActiveChannel: -> @state.active
 
   handleNewChannel: (channel) ->
-    @setState(channels: @state.channels.concat([_.assign(channel, {temporary: true})]))
+    channel.temporary = true
+    @setState(channels: @state.channels.push(channel))
 
   handleSetChannels: (channels) ->
-    @setState(channels: channels)
+    @setState(channels: Immutable.List(channels))
 
   handleFailCreate: (error) ->
     @setState
-      channels: _.filter @state.channels, (chan) ->
+      channels: @state.channels.filter (chan) ->
         chan.name != error.channel || not chan?.temporary
 
   handleSetActive: (channel) ->

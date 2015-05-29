@@ -4,7 +4,8 @@ moment = require("moment")
 MessageList = React.createClass
   render: ->
     <ul style={@style}>
-      {_.map @props.messages, (message) ->
+      <p>Message Count: {@props.messages.count()}</p>
+      {@props.messages.map (message) ->
         <MessageListItem key={message.id} {...message} />
       }
     </ul>

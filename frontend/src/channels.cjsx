@@ -4,10 +4,10 @@ Link = require("react-router/lib/components/Link")
 ChannelList = React.createClass
   render: ->
     <ol style={@listStyle}>
-      {_.map(@props.channels, (channel) =>
+      {@props.channels.map (channel) =>
         <ChannelListItem key={channel.id}
                          {...channel}
-                         active={channel.name == @props.active} />)
+                         active={channel.name == @props.active} />
       }
     </ol>
 

@@ -1,5 +1,4 @@
 React = require("react")
-_ = require("lodash")
 Promise = require("es6-promise").Promise
 Router = require("react-router/lib/runRouter")
 Route = require("react-router/lib/Route")
@@ -184,7 +183,7 @@ SigninView = React.createClass
     fetch "/api/signin",
       method: "post"
       headers: {"Content-Type": "application/json"}
-      body: JSON.stringify(_.pick(@state, "login", "password"))
+      body: JSON.stringify(login: @state.login, password: @state.password)
       credentials: "include"
     .then (response) ->
       if response.status >= 200 && response.status < 300
@@ -226,7 +225,7 @@ SignupView = React.createClass
     fetch "/api/signup",
       method: "post"
       headers: {"Content-Type": "application/json"}
-      body: JSON.stringify(_.pick(@state, "login", "password"))
+      body: JSON.stringify(login: @state.login, password: @state.password)
       credentials: "include"
     .then (response) ->
       if response.status >= 200 && response.status < 300
