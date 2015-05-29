@@ -13,7 +13,7 @@ module.exports = React.createClass
           <li><Link to="signup">Sign up</Link></li>
           <li><Link to="signin">Sign in</Link></li>
         </ul>
-        <FluxComponent flux={@flux}>
+        <FluxComponent flux={@flux} connectToStores={"app"}>
           <RouteHandler />
         </FluxComponent>
       </div>

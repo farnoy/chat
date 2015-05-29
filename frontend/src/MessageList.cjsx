@@ -12,4 +12,3 @@ module.exports = React.createClass
 
   style:
     padding: 0
-
