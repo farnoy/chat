@@ -150,10 +150,7 @@ server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> 
                                     let messagesWithAuthors = fmap (\(k, m) -> MessagesApiResult k (findAuthor (authorKey m)) m) messages
 
                                     return messagesWithAuthors
-                          where clamp limit = case limit of
-                                          Just l | l > 1 && l < 100 -> l
-                                          Just l -> 100
-                                          Nothing -> 100
+                          where clamp = maybe 100 (min 100 . max 1)
             messagesCreate cid sid (MessageInput b) = do
                                     time <- liftIO getCurrentTime
                                     res <- withResource pool $ runDbConn $ do
