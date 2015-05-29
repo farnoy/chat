@@ -150,9 +150,10 @@ App = React.createClass
       padding: "30px"
       boxShadow: "0 0 20px black"
       flexFlow: "column nowrap"
-      flex: "0 1 60%"
+      flex: "0 1 800px"
       display: "flex"
       height: "80%"
+      margin: "50px"
 
 SigninView = React.createClass
   mixins: [Navigation]
