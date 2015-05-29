@@ -107,19 +107,16 @@ instance FromFormUrlEncoded UserInput where
                               Just u -> Right u
                               _ -> Left ""
 
-type Api =
-      "channels" :> (
-             Get '[JSON] [ChannelsApiResult]
-        :<|> WithCookie "session_id" Text :> ReqBody '[JSON] Channel :> Post '[JSON] ApiStatusResult
-        :<|> Capture "channel" Text :> "messages" :> Get '[JSON] [MessagesApiResult]
-        :<|> Capture "channel" Text :> "messages" :> WithCookie "session_id" Integer :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
-      )
+type Api = "channels" :> Get '[JSON] [ChannelsApiResult]
+      :<|> "channels" :> WithCookie "session_id" Text :> ReqBody '[JSON] Channel :> Post '[JSON] ApiStatusResult
+      :<|> "channels" :> QueryParam "limit" Int :> Capture "channel" Text :> "messages" :> Get '[JSON] [MessagesApiResult]
+      :<|> "channels" :> Capture "channel" Text :> "messages" :> WithCookie "session_id" Integer :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
       :<|> "signup" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
       :<|> "signin" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 
 
 server :: Pool Postgresql -> TQueue Text -> Server Api
-server pool queue = enter (handlerToEither (Env pool queue)) ((channelsList :<|> channelsCreate :<|> messagesIndex :<|> messagesCreate) :<|> signup :<|> signin)
+server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> channelsCreate :<|> messagesIndex :<|> messagesCreate :<|> signup :<|> signin)
       where channelsList = do
                              channels <- withDb $
                                project (AutoKeyField, ChannelConstructor) CondEmpty
@@ -136,10 +133,10 @@ server pool queue = enter (handlerToEither (Env pool queue)) ((channelsList :<|>
                                     lift $ case r of
                                       Left _ -> left err500
                                       Right r' -> return r'
-            messagesIndex cid = do
+            messagesIndex limit cid = do
                                     messages <- withResource pool $ runDbConn $ do
                                       (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                                      project (AutoKeyField, MessageConstructor) (ChannelKeyField ==. channel)
+                                      project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `limitTo` clamp limit
 
                                     let authorIds = nub . fmap (\(_, m) -> authorKey m) $ messages
                                     let conditions = foldr (\a ac -> ac ||. (AutoKeyField ==. a)) CondEmpty authorIds
@@ -153,6 +150,10 @@ server pool queue = enter (handlerToEither (Env pool queue)) ((channelsList :<|>
                                     let messagesWithAuthors = fmap (\(k, m) -> MessagesApiResult k (findAuthor (authorKey m)) m) messages
 
                                     return messagesWithAuthors
+                          where clamp limit = case limit of
+                                          Just l | l > 1 && l < 100 -> l
+                                          Just l -> 100
+                                          Nothing -> 100
             messagesCreate cid sid (MessageInput b) = do
                                     time <- liftIO getCurrentTime
                                     res <- withResource pool $ runDbConn $ do
