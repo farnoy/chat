@@ -23,7 +23,6 @@ module.exports = class MessageStore extends Flummox.Store
       .sortBy((msg) -> new Date(msg.timestamp).getTime())
     state = @state.messagesByChannel.set(channel, messages)
     @setState(messagesByChannel: Immutable.Map(state))
-    console.log "handled set messages", state
 
   handleAddMessage: ({channel, message}) ->
     state = @state.messagesByChannel.update(channel, Immutable.List(), (list) -> list.push(message))

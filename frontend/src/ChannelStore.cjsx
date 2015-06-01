@@ -10,11 +10,9 @@ module.exports = class ChannelStore extends Flummox.Store
     @register(channel.setChannels, @handleSetChannels)
     @register(channel.setActive, @handleSetActive)
 
-    @state = {channels: Immutable.List(), active: null}
+    @state = {channels: Immutable.List()}
 
   getChannelById: (id) -> @state.channels.find((c) -> c.id == id)
-
-  getActiveChannel: -> @state.active
 
   handleNewChannel: (channel) ->
     channel.temporary = true
@@ -27,6 +25,3 @@ module.exports = class ChannelStore extends Flummox.Store
     @setState
       channels: @state.channels.filter (chan) ->
         chan.name != error.channel || not chan?.temporary
-
-  handleSetActive: (channel) ->
-    @setState(active: channel)

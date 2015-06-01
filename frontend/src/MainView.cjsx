@@ -9,20 +9,22 @@ module.exports = React.createClass
     <div style={@containerStyle}>
       <div style={@sidebarStyle}>
         <FluxComponent connectToStores={["channels"]}>
-          <ChannelList />
+          <ChannelList active={@state.activeChannel} />
         </FluxComponent>
-        <ChannelForm />
+
+        <FluxComponent>
+          <ChannelForm />
+        </FluxComponent>
       </div>
 
       <div style={@mainStyle}>
-        { if @props.flux.getStore("channels").getActiveChannel()
-          <p>Channel is: {@props.params.channel}</p>
-          <FluxComponent connectToStores={["channels", "messages", "app"]}
-                         stateGetter={([channelStore, messageStore, appStore]) ->
-                   chan = channelStore.getActiveChannel()
-                   messages = messageStore.getMessages(chan)
-                   {messages: messages.slice(-100), activeChannel: chan}}>
-            <MessageBox />
+        { if @state.activeChannel
+          <p>Channel is: {@state.activeChannel}</p>
+          <FluxComponent connectToStores={"messages"}
+                         stateGetter={(messageStore) =>
+                   messages = messageStore.getMessages(@state.activeChannel)
+                   {messages: messages.slice(-100)}}>
+            <MessageBox activeChannel={@state.activeChannel} />
           </FluxComponent>
         }
       </div>
@@ -40,11 +42,16 @@ module.exports = React.createClass
     flex: "1 1 400px"
     display: "flex"
 
-  getInitialState: -> {websocket: null}
+  getInitialState: ->
+    websocket = new WebSocket("ws://localhost:8082")
+    websocket.onmessage = (msg) =>
+      payload = JSON.parse(msg.data)
+      chan = @props.flux.getStore("channels").getChannelById(payload.channel_id)
+      @props.flux.getActions("messages").addMessage(channel: chan.name, message: payload)
+
+    {websocket: websocket, activeChannel: null}
 
   componentWillMount: ->
-    @props.flux.getActions("app").setupWebSocket()
-
     if @props.params?.channel?
       @setActiveChannel(@props.params.channel)
 
@@ -57,5 +64,5 @@ module.exports = React.createClass
     @props.flux.getActions("channels").reloadChannels()
 
   setActiveChannel: (channel) ->
-    @props.flux.getActions("channels").setActive(channel)
     @props.flux.getActions("messages").preload(channel)
+    @setState(activeChannel: channel)
