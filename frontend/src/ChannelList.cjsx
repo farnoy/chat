@@ -1,13 +1,15 @@
 React = require("react")
 ChannelListItem = require("./ChannelListItem")
+FluxComponent = require("flummox/component")
 
 module.exports = React.createClass
   render: ->
     <ol style={@listStyle}>
       {@props.channels.map (channel) =>
-        <ChannelListItem key={channel.id}
-                         {...channel}
-                         active={channel.name == @props.active} />
+        <FluxComponent key={channel.id}>
+          <ChannelListItem {...channel}
+                           active={channel.name == @props.active} />
+        </FluxComponent>
       }
     </ol>
 

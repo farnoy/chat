@@ -8,7 +8,7 @@ module.exports = class ChannelStore extends Flummox.Store
     channel = flux.getActionIds("channels")
     @registerAsync(channel.createChannel, @handleNewChannel, @handleSetChannels, @handleFailCreate)
     @register(channel.setChannels, @handleSetChannels)
-    @register(channel.setActive, @handleSetActive)
+    @registerAsync(channel.delete, null, @handleRemoveChannel)
 
     @state = {channels: Immutable.List()}
 
@@ -25,3 +25,8 @@ module.exports = class ChannelStore extends Flummox.Store
     @setState
       channels: @state.channels.filter (chan) ->
         chan.name != error.channel || not chan?.temporary
+
+  handleRemoveChannel: (channel) ->
+    @setState
+      channels: @state.channels.filter (chan) ->
+        chan.name != channel

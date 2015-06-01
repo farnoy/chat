@@ -36,10 +36,11 @@ module.exports = React.createClass
     width: "100%"
 
   sidebarStyle:
-    flex: "0 0 200px"
+    flex: "1 0 100px"
 
   mainStyle:
-    flex: "1 1 400px"
+    marginLeft: "20px"
+    flex: "5 1 400px"
     display: "flex"
 
   getInitialState: ->

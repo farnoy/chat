@@ -42,3 +42,12 @@ module.exports = class ChannelActions extends Flummox.Actions
       .then (json) =>
         resolve(@setChannels(json))
 
+  delete: (channel) ->
+    new Promise (resolve, reject) =>
+      fetch "/api/channels/#{channel}",
+        credentials: "include"
+        method: "delete"
+        headers: {"Content-Type": "application/json"}
+      .then ->
+        resolve(channel)
+

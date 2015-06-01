@@ -109,6 +109,7 @@ instance FromFormUrlEncoded UserInput where
 
 type Api = "channels" :> Get '[JSON] [ChannelsApiResult]
       :<|> "channels" :> WithCookie "session_id" Text :> ReqBody '[JSON] Channel :> Post '[JSON] ApiStatusResult
+      :<|> "channels" :> WithCookie "session_id" Text :> Capture "channel" Text :> Delete '[JSON] ApiStatusResult
       :<|> "channels" :> QueryParam "limit" Int :> Capture "channel" Text :> "messages" :> Get '[JSON] [MessagesApiResult]
       :<|> "channels" :> Capture "channel" Text :> "messages" :> WithCookie "session_id" Integer :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
       :<|> "signup" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
@@ -116,14 +117,13 @@ type Api = "channels" :> Get '[JSON] [ChannelsApiResult]
 
 
 server :: Pool Postgresql -> TQueue Text -> Server Api
-server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> channelsCreate :<|> messagesIndex :<|> messagesCreate :<|> signup :<|> signin)
+server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> channelsCreate :<|> channelsDelete  :<|> messagesIndex :<|> messagesCreate :<|> signup :<|> signin)
       where channelsList = do
                              channels <- withDb $
                                project (AutoKeyField, ChannelConstructor) CondEmpty
                              return $ fmap (uncurry ChannelsApiResult) channels
             channelsCreate :: Text -> Channel -> ReaderT Env (EitherT ServantErr IO) ApiStatusResult
             channelsCreate c input = do
-                                    liftIO $ print c
                                     r <- liftIO
                                            ((try $
                                              do withResource pool $ runDbConn  $ insert_ input
@@ -133,6 +133,13 @@ server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> 
                                     lift $ case r of
                                       Left _ -> left err500
                                       Right r' -> return r'
+            channelsDelete session input = do
+                                    withDb $ do
+                                      (channel : _) <- project AutoKeyField (ChannelNameField ==. input)
+                                      delete (ChannelKeyField ==. channel)
+                                      delete (AutoKeyField  ==. channel)
+
+                                    return $ ApiStatusResult True ""
             messagesIndex limit cid = do
                                     messages <- withResource pool $ runDbConn $ do
                                       (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
