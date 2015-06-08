@@ -45,7 +45,7 @@ import Network.Wai
 import Servant
 
 data Env = Env { db :: Pool Postgresql, queue :: TQueue Text }
-type Handler a = ReaderT Env (EitherT ServantErr IO) a
+type App a = ReaderT Env (EitherT ServantErr IO) a
 
 withDb f = do
   env <- ask
@@ -110,84 +110,104 @@ instance FromFormUrlEncoded UserInput where
 type Api = "channels" :> Get '[JSON] [ChannelsApiResult]
       :<|> "channels" :> WithCookie "session_id" Text :> ReqBody '[JSON] Channel :> Post '[JSON] ApiStatusResult
       :<|> "channels" :> WithCookie "session_id" Text :> Capture "channel" Text :> Delete '[JSON] ApiStatusResult
-      :<|> "channels" :> QueryParam "limit" Int :> Capture "channel" Text :> "messages" :> Get '[JSON] [MessagesApiResult]
+      :<|> "channels" :> Capture "channel" Text :> QueryParam "limit" Int :> "messages" :> Get '[JSON] [MessagesApiResult]
       :<|> "channels" :> Capture "channel" Text :> "messages" :> WithCookie "session_id" Integer :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
       :<|> "signup" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
       :<|> "signin" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 
+channelsIndex :: App [ChannelsApiResult]
+channelsIndex = do
+                 channels <- withDb $
+                   project (AutoKeyField, ChannelConstructor) CondEmpty
+                 return $ fmap (uncurry ChannelsApiResult) channels
 
-server :: Pool Postgresql -> TQueue Text -> Server Api
-server pool queue = enter (handlerToEither (Env pool queue)) (channelsList :<|> channelsCreate :<|> channelsDelete  :<|> messagesIndex :<|> messagesCreate :<|> signup :<|> signin)
-      where channelsList = do
-                             channels <- withDb $
-                               project (AutoKeyField, ChannelConstructor) CondEmpty
-                             return $ fmap (uncurry ChannelsApiResult) channels
-            channelsCreate :: Text -> Channel -> ReaderT Env (EitherT ServantErr IO) ApiStatusResult
-            channelsCreate c input = do
-                                    r <- liftIO
-                                           ((try $
-                                             do withResource pool $ runDbConn  $ insert_ input
-                                                return (ApiStatusResult True T.empty))
-                                                :: IO (Either SqlError ApiStatusResult))
+channelsCreate :: Text -> Channel -> App ApiStatusResult
+channelsCreate c input = do
+                          pool <- ask >>= return . db
+                          r <- liftIO
+                                 ((try $
+                                   do withResource pool $ runDbConn $ insert_ input
+                                      return (ApiStatusResult True T.empty))
+                                      :: IO (Either SqlError ApiStatusResult))
 
-                                    lift $ case r of
-                                      Left _ -> left err500
-                                      Right r' -> return r'
-            channelsDelete session input = do
-                                    withDb $ do
-                                      (channel : _) <- project AutoKeyField (ChannelNameField ==. input)
-                                      delete (ChannelKeyField ==. channel)
-                                      delete (AutoKeyField  ==. channel)
+                          lift $ case r of
+                            Left _ -> left err500
+                            Right r' -> return r'
 
-                                    return $ ApiStatusResult True ""
-            messagesIndex limit cid = do
-                                    messages <- withResource pool $ runDbConn $ do
-                                      (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                                      project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `orderBy` [Asc TimestampField] `limitTo` clamp limit
+channelsDelete :: Text -> Text -> App ApiStatusResult
+channelsDelete session cn = do
+                        withDb $ do
+                          (channel : _) <- project AutoKeyField (ChannelNameField ==. cn)
+                          delete (ChannelKeyField ==. channel)
+                          delete (AutoKeyField  ==. channel)
 
-                                    let authorIds = nub . fmap (\(_, m) -> authorKey m) $ messages
-                                    let conditions = foldr (\a ac -> ac ||. (AutoKeyField ==. a)) CondEmpty authorIds
+                        return $ ApiStatusResult True ""
 
-                                    authors <- withResource pool $ runDbConn $ do
-                                      project (AutoKeyField, UserConstructor) conditions
+messagesIndex :: Text -> Maybe Int -> App [MessagesApiResult]
+messagesIndex cid limit = do
+                        messages <- withDb $ do
+                          (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
+                          project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `orderBy` [Asc TimestampField] `limitTo` clamp limit
 
-                                    let findAuthor (UserKey p)  = let Just (_, f) = find (q . fst) authors in f
-                                                        where q (UserKey k) = k == p
+                        let authorIds = nub . fmap (\(_, m) -> authorKey m) $ messages
+                        let conditions = foldr (\a ac -> ac ||. (AutoKeyField ==. a)) CondEmpty authorIds
 
-                                    let messagesWithAuthors = fmap (\(k, m) -> MessagesApiResult k (findAuthor (authorKey m)) m) messages
+                        authors <- withDb $
+                          project (AutoKeyField, UserConstructor) conditions
 
-                                    return messagesWithAuthors
-                          where clamp = maybe 100 (min 100 . max 1)
-            messagesCreate cid sid (MessageInput b) = do
-                                    time <- liftIO getCurrentTime
-                                    res <- withResource pool $ runDbConn $ do
-                                      (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                                      key <- insert (Message channel (UserKey (PersistInt64 (fromIntegral sid))) b time)
-                                      (MessageKey k, message) : _ <- project (AutoKeyField, MessageConstructor) (AutoKeyField ==. key)
-                                      author : _ <- project UserConstructor (AutoKeyField ==. (authorKey message))
-                                      return $ MessagesApiResult key author message
+                        let findAuthor (UserKey p)  = let Just (_, f) = find (q . fst) authors in f
+                                            where q (UserKey k) = k == p
 
-                                    liftIO $ atomically $ writeTQueue queue (decodeUtf8 $ toStrict $ encode res)
-                                    return (ApiStatusResult True "")
-            signup :: UserInput -> ReaderT Env (EitherT ServantErr IO) (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
-            signup (UserInput l p) = do
-                                      res <- liftIO ((try $ withResource pool $ runDbConn $
-                                        insert (User l (toByteString' p)))
-                                        :: IO (Either SqlError (Key User BackendSpecific)))
+                        let messagesWithAuthors = fmap (\(k, m) -> MessagesApiResult k (findAuthor (authorKey m)) m) messages
 
-                                      case res of
-                                        Right (UserKey (PersistInt64 k)) -> return $ addHeader (sessionCookie k) (ApiStatusResult True "")
-                                        _ -> return $ addHeader "" (ApiStatusResult False "Login taken")
-            signin :: UserInput -> ReaderT Env (EitherT ServantErr IO) (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
-            signin (UserInput l p) = do
-                                      user <- withResource pool $ runDbConn $ do
-                                        project AutoKeyField ((LoginField ==. l) &&. (EncryptedPasswordField ==. (toByteString' p)))
+                        return messagesWithAuthors
+              where clamp = maybe 100 (min 100 . max 1)
 
-                                      case user of
-                                        UserKey (PersistInt64 k) : _ ->
-                                          return $ addHeader (sessionCookie k) $
-                                              ApiStatusResult True ""
-                                        _ -> return $ addHeader "" (ApiStatusResult False "Invalid password")
+messagesCreate :: Text -> Integer -> MessageInput -> App ApiStatusResult
+messagesCreate cid sid (MessageInput b) = do
+                        time <- liftIO getCurrentTime
+                        res <- withDb $ do
+                          (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
+                          key <- insert (Message channel (UserKey (PersistInt64 (fromIntegral sid))) b time)
+                          (MessageKey k, message) : _ <- project (AutoKeyField, MessageConstructor) (AutoKeyField ==. key)
+                          author : _ <- project UserConstructor (AutoKeyField ==. (authorKey message))
+                          return $ MessagesApiResult key author message
+
+                        announce $ decodeUtf8 $ toStrict $ encode res
+
+                        return (ApiStatusResult True "")
+
+signup :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
+signup (UserInput l p) = do
+                          pool <- ask >>= return . db
+                          res <- liftIO ((try $ withResource pool $ runDbConn $
+                            insert (User l (toByteString' p)))
+                            :: IO (Either SqlError (Key User BackendSpecific)))
+
+                          case res of
+                            Right (UserKey (PersistInt64 k)) -> return $ addHeader (sessionCookie k) (ApiStatusResult True "")
+                            _ -> return $ addHeader "" (ApiStatusResult False "Login taken")
+
+signin :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
+signin (UserInput l p) = do
+                          user <- withDb $
+                            project AutoKeyField ((LoginField ==. l) &&. (EncryptedPasswordField ==. (toByteString' p)))
+
+                          case user of
+                            UserKey (PersistInt64 k) : _ ->
+                              return $ addHeader (sessionCookie k) $
+                                  ApiStatusResult True ""
+                            _ -> return $ addHeader "" (ApiStatusResult False "Invalid password")
+
+server :: Env -> Server Api
+server e = enter (handlerToEither e)
+               $  channelsIndex
+             :<|> channelsCreate
+             :<|> channelsDelete
+             :<|> messagesIndex
+             :<|> messagesCreate
+             :<|> signup
+             :<|> signin
 
 sessionCookie :: ToText k => k -> Text
 sessionCookie k = "session_id=" <> toText k <> "; Path=/; Max-Age=21600; HttpOnly"
@@ -196,4 +216,4 @@ api :: Proxy Api
 api = Proxy
 
 app :: Pool Postgresql -> TQueue Text -> Application
-app pool queue = serve api (server pool queue)
+app pool queue = serve api $ server $ Env pool queue
