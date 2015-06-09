@@ -39,6 +39,7 @@ import Data.Text.Encoding
 import Database.Persist
 import Database.Persist.Sql
 import GHC.Generics
+import Network.HTTP.Types.Header (hContentType)
 import Network.Wai
 import Servant
 
@@ -56,8 +57,18 @@ announce msg = do
   env <- ask
   liftIO . atomically . writeTQueue (queue env) $ msg
 
+appError :: forall a b. ToJSON a => a -> App b
+appError = lift . appError_
+
+appError_ :: forall a b. ToJSON a => a -> EitherT ServantErr IO b
+appError_ a = left err500 { errBody = encode a, errHeaders = [(hContentType, "application/json")] }
+
 handlerToEither' :: Env -> AppM a -> EitherT ServantErr IO a
-handlerToEither' e h = runReaderT h e
+handlerToEither' e h = C.handle handler $ runReaderT h e
+                       where handler :: SomeException -> EitherT ServantErr IO a
+                             handler ex = do
+                              liftIO (print $ "ERROR " <> show ex)
+                              appError_ $ ApiStatusResult False (T.pack $ show ex)
 
 handlerToEither :: Env -> (AppM :~> EitherT ServantErr IO)
 handlerToEither e = Nat (handlerToEither' e)
@@ -118,8 +129,8 @@ channelsCreate :: Text -> Channel -> App ApiStatusResult
 channelsCreate _ input = do
                           r <- C.try $ withDb $ insert_ input
 
-                          lift $ case r of
-                            Left (_ :: SomeException) -> left err500
+                          case r of
+                            Left (_ :: SomeException) -> appError (ApiStatusResult False "Channel with this name already exists")
                             Right _ -> return (ApiStatusResult True T.empty)
 
 channelsDelete :: Text -> Text -> App ApiStatusResult
@@ -166,12 +177,11 @@ messagesCreate cid sid (MessageInput b) = do
 
 signup :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 signup (UserInput l p) = do
-                          res <- C.try $ withDb $
-                            insert (User l (toByteString' p))
+                          res <- C.try $ withDb $ insert (User l (toByteString' p))
 
                           case res of
                             Right k -> return $ addHeader (sessionCookie (fromSqlKey k)) (ApiStatusResult True "")
-                            Left (_ :: SomeException) -> return $ addHeader "" (ApiStatusResult False "Login taken")
+                            Left (_ :: SomeException) -> appError $ ApiStatusResult False "Login taken"
 
 signin :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 signin (UserInput l p) = do
