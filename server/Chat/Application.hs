@@ -16,10 +16,10 @@ module Chat.Application(
 
 import Chat.Combinators
 import Chat.Persistence
-import Chat.Persistence.Generated
 import Control.Concurrent.STM.TQueue
 import Control.Exception
 import Control.Monad
+import qualified Control.Monad.Catch as C
 import Control.Monad.STM
 import Control.Monad.Trans
 import Control.Monad.Trans.Either
@@ -27,48 +27,49 @@ import Control.Monad.Trans.Reader
 import Data.Aeson
 import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Conversion
+import Data.Int
 import Data.List (nub, find)
 import Data.Monoid ((<>))
-import Data.Pool
 import Data.Time.Calendar
 import Data.Time.Clock
 import Data.Typeable
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding
-import Database.Groundhog
-import Database.Groundhog.Core
-import Database.Groundhog.Postgresql
-import Database.PostgreSQL.Simple.Internal
+import Database.Persist
+import Database.Persist.Sql
 import GHC.Generics
 import Network.Wai
 import Servant
 
-data Env = Env { db :: Pool Postgresql, queue :: TQueue Text }
-type App a = ReaderT Env (EitherT ServantErr IO) a
+data Env = Env { db :: ConnectionPool, queue :: TQueue Text }
+type AppM = ReaderT Env (EitherT ServantErr IO)
+type App a = AppM a
 
+withDb :: SqlPersistT (AppM) a -> App a
 withDb f = do
   env <- ask
-  withResource (db env) $ runDbConn f
+  runSqlPool f (db env)
 
+announce :: Text -> App ()
 announce msg = do
   env <- ask
-  return . atomically . writeTQueue (queue env) $ msg
+  liftIO . atomically . writeTQueue (queue env) $ msg
 
-handlerToEither' :: Env -> ReaderT Env (EitherT ServantErr IO) a -> EitherT ServantErr IO a
+handlerToEither' :: Env -> AppM a -> EitherT ServantErr IO a
 handlerToEither' e h = runReaderT h e
 
-handlerToEither :: Env -> (ReaderT Env (EitherT ServantErr IO) :~> EitherT ServantErr IO)
+handlerToEither :: Env -> (AppM :~> EitherT ServantErr IO)
 handlerToEither e = Nat (handlerToEither' e)
 
 newtype UserDay = UserDay Day deriving(Eq, Show)
 
-data ChannelsApiResult = ChannelsApiResult (Key Channel BackendSpecific) Channel deriving(Generic)
+data ChannelsApiResult = ChannelsApiResult (Entity Channel) deriving(Generic)
 
 instance ToJSON ChannelsApiResult where
-  toJSON (ChannelsApiResult (ChannelKey k) (Channel name)) = object ["id" .= k, "name" .= name]
+  toJSON (ChannelsApiResult (Entity k (Channel name))) = object ["id" .= k, "name" .= name]
 
-data MessagesApiResult = MessagesApiResult (Key Message BackendSpecific) User Message deriving(Generic)
+data MessagesApiResult = MessagesApiResult (Key Message) User Message deriving(Generic)
 
 instance ToJSON MessagesApiResult where
   toJSON (MessagesApiResult (MessageKey k) a (Message (ChannelKey ck) (UserKey ak) b t) )
@@ -77,9 +78,6 @@ instance ToJSON MessagesApiResult where
 
 instance ToJSON User where
   toJSON (User l _) = object ["login" .= l]
-
-instance ToJSON Message where
-  toJSON (Message (ChannelKey ck) (UserKey ak) b t) = object ["channel_id" .= ck, "author_id" .= ak, "timestamp" .= t, "body" .= b]
 
 instance FromJSON Channel where
   parseJSON (Object v) = Channel <$> v .: "name"
@@ -102,75 +100,64 @@ instance FromJSON UserInput where
   parseJSON (Object v) = UserInput <$> v .: "login" <*> v .: "password"
   parseJSON _ = mzero
 
-instance FromFormUrlEncoded UserInput where
-  fromFormUrlEncoded form = case UserInput <$> lookup "login" form <*> lookup "password" form of
-                              Just u -> Right u
-                              _ -> Left ""
-
 type Api = "channels" :> Get '[JSON] [ChannelsApiResult]
       :<|> "channels" :> WithCookie "session_id" Text :> ReqBody '[JSON] Channel :> Post '[JSON] ApiStatusResult
       :<|> "channels" :> WithCookie "session_id" Text :> Capture "channel" Text :> Delete '[JSON] ApiStatusResult
       :<|> "channels" :> Capture "channel" Text :> QueryParam "limit" Int :> "messages" :> Get '[JSON] [MessagesApiResult]
-      :<|> "channels" :> Capture "channel" Text :> "messages" :> WithCookie "session_id" Integer :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
+      :<|> "channels" :> Capture "channel" Text :> "messages" :> WithCookie "session_id" Int64 :> ReqBody '[JSON] MessageInput :> Post '[JSON] ApiStatusResult
       :<|> "signup" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
       :<|> "signin" :> ReqBody '[JSON] UserInput :> Post '[JSON] (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 
 channelsIndex :: App [ChannelsApiResult]
 channelsIndex = do
                  channels <- withDb $
-                   project (AutoKeyField, ChannelConstructor) CondEmpty
-                 return $ fmap (uncurry ChannelsApiResult) channels
+                   selectList [] []
+                 return $ fmap ChannelsApiResult channels
 
 channelsCreate :: Text -> Channel -> App ApiStatusResult
-channelsCreate c input = do
-                          pool <- ask >>= return . db
-                          r <- liftIO
-                                 ((try $
-                                   do withResource pool $ runDbConn $ insert_ input
-                                      return (ApiStatusResult True T.empty))
-                                      :: IO (Either SqlError ApiStatusResult))
+channelsCreate _ input = do
+                          r <- C.try $ withDb $ insert_ input
 
                           lift $ case r of
-                            Left _ -> left err500
-                            Right r' -> return r'
+                            Left (_ :: SomeException) -> left err500
+                            Right _ -> return (ApiStatusResult True T.empty)
 
 channelsDelete :: Text -> Text -> App ApiStatusResult
-channelsDelete session cn = do
+channelsDelete _ cn = do
                         withDb $ do
-                          (channel : _) <- project AutoKeyField (ChannelNameField ==. cn)
-                          delete (ChannelKeyField ==. channel)
-                          delete (AutoKeyField  ==. channel)
+                          deleteWhere [ChannelChannelName ==. cn]
 
                         return $ ApiStatusResult True ""
 
 messagesIndex :: Text -> Maybe Int -> App [MessagesApiResult]
 messagesIndex cid limit = do
                         messages <- withDb $ do
-                          (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                          project (AutoKeyField, MessageConstructor) $ (ChannelKeyField ==. channel) `orderBy` [Asc TimestampField] `limitTo` clamp limit
+                          (Just e) <- selectFirst [ChannelChannelName ==. cid] []
+                          selectList [MessageChannelKey ==. entityKey e] [Asc MessageTimestamp, LimitTo $ clamp limit]
 
-                        let authorIds = nub . fmap (\(_, m) -> authorKey m) $ messages
-                        let conditions = foldr (\a ac -> ac ||. (AutoKeyField ==. a)) CondEmpty authorIds
+                        let authorIds = nub . fmap (\(Entity _ m) -> messageAuthorKey m) $ messages
+                        let conditions = fmap (UserId ==.) authorIds
 
                         authors <- withDb $
-                          project (AutoKeyField, UserConstructor) conditions
+                          selectList conditions []
 
-                        let findAuthor (UserKey p)  = let Just (_, f) = find (q . fst) authors in f
-                                            where q (UserKey k) = k == p
+                        let {findAuthor :: Key User -> User;
+                             findAuthor p = let Just (Entity _ f) = find ((==p) . entityKey) authors in f
+                        }
 
-                        let messagesWithAuthors = fmap (\(k, m) -> MessagesApiResult k (findAuthor (authorKey m)) m) messages
+                        let messagesWithAuthors = fmap (\(Entity k m) -> MessagesApiResult k (findAuthor (messageAuthorKey m)) m) messages
 
                         return messagesWithAuthors
               where clamp = maybe 100 (min 100 . max 1)
 
-messagesCreate :: Text -> Integer -> MessageInput -> App ApiStatusResult
+messagesCreate :: Text -> Int64 -> MessageInput -> App ApiStatusResult
 messagesCreate cid sid (MessageInput b) = do
                         time <- liftIO getCurrentTime
                         res <- withDb $ do
-                          (channel : _) <- project (AutoKeyField) (ChannelNameField ==. cid)
-                          key <- insert (Message channel (UserKey (PersistInt64 (fromIntegral sid))) b time)
-                          (MessageKey k, message) : _ <- project (AutoKeyField, MessageConstructor) (AutoKeyField ==. key)
-                          author : _ <- project UserConstructor (AutoKeyField ==. (authorKey message))
+                          Just (Entity channel _) <- selectFirst [ChannelChannelName ==. cid] []
+                          key <- insert (Message channel (toSqlKey sid) b time)
+                          Just (Entity _ message) <- selectFirst [(MessageId ==. key)] []
+                          Just author <- get $ messageAuthorKey message
                           return $ MessagesApiResult key author message
 
                         announce $ decodeUtf8 $ toStrict $ encode res
@@ -179,25 +166,23 @@ messagesCreate cid sid (MessageInput b) = do
 
 signup :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 signup (UserInput l p) = do
-                          pool <- ask >>= return . db
-                          res <- liftIO ((try $ withResource pool $ runDbConn $
-                            insert (User l (toByteString' p)))
-                            :: IO (Either SqlError (Key User BackendSpecific)))
+                          res <- C.try $ withDb $
+                            insert (User l (toByteString' p))
 
                           case res of
-                            Right (UserKey (PersistInt64 k)) -> return $ addHeader (sessionCookie k) (ApiStatusResult True "")
-                            _ -> return $ addHeader "" (ApiStatusResult False "Login taken")
+                            Right k -> return $ addHeader (sessionCookie (fromSqlKey k)) (ApiStatusResult True "")
+                            Left (_ :: SomeException) -> return $ addHeader "" (ApiStatusResult False "Login taken")
 
 signin :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 signin (UserInput l p) = do
                           user <- withDb $
-                            project AutoKeyField ((LoginField ==. l) &&. (EncryptedPasswordField ==. (toByteString' p)))
+                            selectFirst [(UserLogin ==. l), UserEncryptedPassword ==. (toByteString' p)] []
 
                           case user of
-                            UserKey (PersistInt64 k) : _ ->
-                              return $ addHeader (sessionCookie k) $
+                            Just (Entity k _) ->
+                              return $ addHeader (sessionCookie (fromSqlKey k)) $
                                   ApiStatusResult True ""
-                            _ -> return $ addHeader "" (ApiStatusResult False "Invalid password")
+                            Nothing -> return $ addHeader "" (ApiStatusResult False "Invalid password")
 
 server :: Env -> Server Api
 server e = enter (handlerToEither e)
@@ -215,5 +200,5 @@ sessionCookie k = "session_id=" <> toText k <> "; Path=/; Max-Age=21600; HttpOnl
 api :: Proxy Api
 api = Proxy
 
-app :: Pool Postgresql -> TQueue Text -> Application
-app pool queue = serve api $ server $ Env pool queue
+app :: ConnectionPool -> TQueue Text -> Application
+app pool q = serve api $ server $ Env pool q

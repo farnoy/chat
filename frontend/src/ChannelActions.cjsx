@@ -15,7 +15,7 @@ module.exports = class ChannelActions extends Flummox.Actions
         else
           err = Error("Cannot create the channel")
           err.channel = name
-          throw err
+          reject(err)
       .then (response) =>
         if response.ok
           fetch "/api/channels",
@@ -27,7 +27,7 @@ module.exports = class ChannelActions extends Flummox.Actions
             else
               err = Error("Cannot fetch the channels")
               err.channel = name
-              throw err
+              reject(err)
           .then (json) ->
             resolve(json)
 

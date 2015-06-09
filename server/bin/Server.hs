@@ -2,6 +2,15 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE EmptyDataDecls             #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module Main where
 
@@ -9,21 +18,17 @@ import Chat.Application
 import Chat.Persistence
 import Chat.WebSocket
 import Control.Concurrent
-import Control.Monad.STM
+import Control.Monad.IO.Class  (liftIO)
+import Control.Monad.Logger    (runStderrLoggingT)
 import Control.Concurrent.STM.TQueue
-import Data.Pool
-import Database.Groundhog
-import Database.Groundhog.Postgresql
+import Database.Persist.Postgresql
 import Network.Wai.Handler.Warp
 
 main :: IO ()
 main = do
   websocketQueue <- newTQueueIO
-  forkIO $ runWebSocket websocketQueue
-  pool <- createPostgresqlPool "postgres://chat@localhost/chat" 5
-  withResource pool $ runDbConn $ runMigration $ do
-    migrate (undefined :: Channel)
-    migrate (undefined :: Message)
-    migrate (undefined :: User)
-  run 8081 (app pool websocketQueue)
+  _ <- forkIO $ runWebSocket websocketQueue
+  runStderrLoggingT $ withPostgresqlPool "postgres://chat@localhost/chat" 5 $ \p -> do
+    runSqlPool (runMigration migrateAll) p
+    liftIO $ run 8081 (app p websocketQueue)
 

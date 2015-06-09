@@ -13,6 +13,7 @@ library
     groundhog-postgresql,
     servant ==0.4.0,
     servant-server ==0.4.0,
+    exceptions,
     wai,
     warp,
     mtl,
@@ -27,6 +28,10 @@ library
     bytestring,
     bytestring-conversion,
     postgresql-simple,
+    persistent,
+    persistent-sqlite,
+    persistent-postgresql,
+    persistent-template,
     resource-pool,
     websockets,
     random,
@@ -34,7 +39,6 @@ library
   exposed-modules: Chat.Application,
                    Chat.Combinators,
                    Chat.Persistence,
-                   Chat.Persistence.Generated,
                    Chat.WebSocket
   default-language: Haskell2010
   ghc-options:
@@ -64,6 +68,13 @@ executable server
     parsec,
     unordered-containers,
     chat-server,
+    persistent,
+    persistent-sqlite,
+    persistent-postgresql,
+    persistent-template,
+    monad-logger,
+    transformers,
+    exceptions,
     stm
   default-language: Haskell2010
   ghc-options:
