@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds            #-}
 {-# LANGUAGE DeriveGeneric        #-}
-{-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE CPP                  #-}
@@ -29,6 +28,7 @@ import Data.ByteString.Lazy (toStrict)
 import Data.ByteString.Conversion
 import Data.Int
 import Data.List (nub, find)
+import Data.Maybe
 import Data.Monoid ((<>))
 import Data.Time.Calendar
 import Data.Time.Clock
@@ -47,7 +47,7 @@ data Env = Env { db :: ConnectionPool, queue :: TQueue Text }
 type AppM = ReaderT Env (EitherT ServantErr IO)
 type App a = AppM a
 
-withDb :: SqlPersistT (AppM) a -> App a
+withDb :: SqlPersistT AppM a -> App a
 withDb f = do
   env <- ask
   runSqlPool f (db env)
@@ -135,8 +135,7 @@ channelsCreate _ input = do
 
 channelsDelete :: Text -> Text -> App ApiStatusResult
 channelsDelete _ cn = do
-                        withDb $ do
-                          deleteWhere [ChannelChannelName ==. cn]
+                        withDb $ deleteWhere [ChannelChannelName ==. cn]
 
                         return $ ApiStatusResult True ""
 
@@ -146,15 +145,11 @@ messagesIndex cid limit = do
                           (Just e) <- selectFirst [ChannelChannelName ==. cid] []
                           selectList [MessageChannelKey ==. entityKey e] [Asc MessageTimestamp, LimitTo $ clamp limit]
 
-                        let authorIds = nub . fmap (\(Entity _ m) -> messageAuthorKey m) $ messages
-                        let conditions = fmap (UserId ==.) authorIds
+                        let authorIds = nub . fmap (messageAuthorKey . entityVal) $ messages
 
-                        authors <- withDb $
-                          selectList conditions []
+                        authors <- withDb $ selectList [UserId <-. authorIds] []
 
-                        let {findAuthor :: Key User -> User;
-                             findAuthor p = let Just (Entity _ f) = find ((==p) . entityKey) authors in f
-                        }
+                        let findAuthor p = entityVal . fromJust . find ((==p) . entityKey) $ authors
 
                         let messagesWithAuthors = fmap (\(Entity k m) -> MessagesApiResult k (findAuthor (messageAuthorKey m)) m) messages
 
@@ -167,7 +162,7 @@ messagesCreate cid sid (MessageInput b) = do
                         res <- withDb $ do
                           Just (Entity channel _) <- selectFirst [ChannelChannelName ==. cid] []
                           key <- insert (Message channel (toSqlKey sid) b time)
-                          Just (Entity _ message) <- selectFirst [(MessageId ==. key)] []
+                          Just (Entity _ message) <- selectFirst [MessageId ==. key] []
                           Just author <- get $ messageAuthorKey message
                           return $ MessagesApiResult key author message
 
@@ -186,7 +181,7 @@ signup (UserInput l p) = do
 signin :: UserInput -> App (Headers '[Header "Set-Cookie" Text] ApiStatusResult)
 signin (UserInput l p) = do
                           user <- withDb $
-                            selectFirst [(UserLogin ==. l), UserEncryptedPassword ==. (toByteString' p)] []
+                            selectFirst [UserLogin ==. l, UserEncryptedPassword ==. toByteString' p] []
 
                           case user of
                             Just (Entity k _) ->
