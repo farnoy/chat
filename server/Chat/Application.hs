@@ -187,7 +187,7 @@ signin (UserInput l p) = do
                             Just (Entity k _) ->
                               return $ addHeader (sessionCookie (fromSqlKey k)) $
                                   ApiStatusResult True ""
-                            Nothing -> return $ addHeader "" (ApiStatusResult False "Invalid password")
+                            Nothing -> appError $ ApiStatusResult False "Invalid password"
 
 server :: Env -> Server Api
 server e = enter (handlerToEither e)

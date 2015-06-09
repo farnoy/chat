@@ -34,10 +34,7 @@ module.exports = React.createClass
       body: JSON.stringify(login: @state.login, password: @state.password)
       credentials: "include"
     .then (response) ->
-      if response.status >= 200 && response.status < 300
-        response.json()
-      else
-        throw new Error(response.statusText)
+      response.json()
     .then (json) =>
       if json.ok
         @transitionTo("root")
