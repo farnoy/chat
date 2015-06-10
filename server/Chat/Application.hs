@@ -16,6 +16,7 @@ module Chat.Application(
 import Chat.Combinators
 import Chat.Persistence
 import Control.Concurrent.STM.TQueue
+import Control.Concurrent.Async
 import Control.Exception
 import Control.Monad
 import qualified Control.Monad.Catch as C
@@ -55,7 +56,8 @@ withDb f = do
 announce :: Text -> App ()
 announce msg = do
   env <- ask
-  liftIO . atomically . writeTQueue (queue env) $ msg
+  _ <- liftIO . async . atomically . writeTQueue (queue env) $ msg
+  return ()
 
 appError :: forall a b. ToJSON a => a -> App b
 appError = lift . appError_
