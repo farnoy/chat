@@ -54,10 +54,9 @@ withDb f = do
   runSqlPool f (db env)
 
 announce :: Text -> App ()
-announce msg = do
+announce msg = pure () <* do
   env <- ask
-  _ <- liftIO . async . atomically . writeTQueue (queue env) $ msg
-  return ()
+  liftIO . async . atomically . writeTQueue (queue env) $ msg
 
 appError :: forall a b. ToJSON a => a -> App b
 appError = lift . appError_
