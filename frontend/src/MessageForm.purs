@@ -1,4 +1,5 @@
 module MessageForm (
+  Props(),
   component
 ) where
 
@@ -13,6 +14,8 @@ import qualified Thermite.Events as T
 import qualified Thermite.Types as T
 
 type State = String
+
+type Props = { activeChannel :: String }
 
 data Action = SetValue String
 
@@ -47,7 +50,7 @@ foreign import onSubmitImpl """
     };
   } """ :: forall a. T.Context State Action -> a -> T.FormEvent -> a
 
-render :: T.Render _ State Unit Action
+render :: T.Render _ State Props Action
 render ctx val _ _ =
     T.form (T.onSubmit ctx (onSubmitImpl ctx (SetValue "")))
       [ T.input (
@@ -65,11 +68,11 @@ render ctx val _ _ =
 
   style = { borderRadius: "10px", border: "1px solid #ccc", padding: "5px", width: "100%" }
 
-spec :: T.Spec _ State Unit Action
+spec :: T.Spec _ State Props Action
 spec = T.simpleSpec "" performAction render
 
 component = T.createClass spec
 
-performAction :: T.PerformAction _ State Unit Action
+performAction :: T.PerformAction _ State Props Action
 performAction _ (SetValue s) = T.modifyState (const s)
 

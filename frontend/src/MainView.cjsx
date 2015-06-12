@@ -2,7 +2,7 @@ React = require("react")
 FluxComponent = require("flummox/component")
 ChannelList = require("./ChannelList")
 ChannelForm = require("./ChannelForm")
-MessageBox = require("./MessageBox")
+MessageBox = require("./MessageBox").component
 
 module.exports = React.createClass
   render: ->
@@ -23,7 +23,7 @@ module.exports = React.createClass
           <FluxComponent connectToStores={"messages"}
                          stateGetter={(messageStore) =>
                    messages = messageStore.getMessages(@state.activeChannel)
-                   {messages: messages.slice(-100)}}>
+                   {messages: messages.slice(-100).toJS()}}>
             <MessageBox activeChannel={@state.activeChannel} />
           </FluxComponent>
         }
