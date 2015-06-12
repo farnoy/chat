@@ -1,4 +1,5 @@
 React = require("react")
+window.React = React # hack for thermite
 Router = require("react-router/lib/runRouter")
 Route = require("react-router/lib/Route")
 DefaultRoute = require("react-router/lib/components/DefaultRoute")

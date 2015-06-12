@@ -10,12 +10,13 @@ webpackConfig =
   resolveLoader:
     modulesDirectories: ["node_modules"]
   resolve:
-    modulesDirectories: ["node_modules"]
-    extensions: ["", ".js", ".cjsx", ".jsx"]
+    modulesDirectories: ["node_modules", ".purescript"]
+    extensions: ["", ".js", ".coffee", ".cjsx", ".jsx", ".purs"]
   module:
     loaders: [
       # { test: /\.jsx$/, loader: "jsx?harmony" },
       { test: /\.cjsx$/, loaders: ["coffee?harmony", "cjsx?harmony"]}
+      { test: /\.purs$/, loader: "purs-loader?src[]=src&output=.purescript"}
     ]
 
 

@@ -1,5 +1,5 @@
 React = require("react")
-MessageListItem = require("./MessageListItem")
+MessageListItem = require("./MessageListItem").component
 
 module.exports = React.createClass
   render: ->
