@@ -1,6 +1,6 @@
 React = require("react")
 FluxComponent = require("flummox/component")
-MessageList = require("./MessageList")
+MessageList = require("./MessageList").component
 MessageForm = require("./MessageForm")
 
 module.exports = React.createClass
@@ -8,7 +8,7 @@ module.exports = React.createClass
     <div style={@styles.container}>
       <div style={@styles.messageContainer}
            ref="messageContainer">
-        <MessageList messages={@props.messages} />
+        <MessageList messages={@props.messages.toJS()} />
       </div>
       <div style={@styles.formContainer}>
         <FluxComponent connectToStores={"channels"}>
