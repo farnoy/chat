@@ -1,7 +1,7 @@
 React = require("react")
 FluxComponent = require("flummox/component")
 MessageList = require("./MessageList").component
-MessageForm = require("./MessageForm")
+MessageForm = require("./MessageForm").component
 
 module.exports = React.createClass
   render: ->
