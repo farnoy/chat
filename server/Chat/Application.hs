@@ -136,7 +136,10 @@ channelsCreate _ input = do
 
 channelsDelete :: Text -> Text -> App ApiStatusResult
 channelsDelete _ cn = do
-                        withDb $ deleteWhere [ChannelChannelName ==. cn]
+                        withDb $ do
+                          Just (Entity chanId _) <- selectFirst [ChannelChannelName ==. cn] []
+                          deleteWhere [MessageChannelKey ==. chanId]
+                          deleteWhere [ChannelId ==. chanId]
 
                         return $ ApiStatusResult True ""
 
