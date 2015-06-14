@@ -14,6 +14,8 @@ module.exports = class ChannelStore extends Flummox.Store
 
   getChannelById: (id) -> @state.channels.find((c) -> c.id == id)
 
+  getChannels: -> @state.channels
+
   handleNewChannel: (channel) ->
     channel.temporary = true
     @setState(channels: @state.channels.push(channel))

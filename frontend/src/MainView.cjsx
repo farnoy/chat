@@ -1,6 +1,6 @@
 React = require("react")
 FluxComponent = require("flummox/component")
-ChannelList = require("./ChannelList")
+ChannelList = require("./ChannelList").component
 ChannelForm = require("./ChannelForm")
 MessageBox = require("./MessageBox").component
 
@@ -8,7 +8,8 @@ module.exports = React.createClass
   render: ->
     <div style={@containerStyle}>
       <div style={@sidebarStyle}>
-        <FluxComponent connectToStores={["channels"]}>
+        <FluxComponent connectToStores={"channels"} stateGetter={(channelStore) =>
+              {channels: channelStore.getChannels().toJS()}}>
           <ChannelList active={@state.activeChannel} />
         </FluxComponent>
 
