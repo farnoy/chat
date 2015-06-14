@@ -1,5 +1,5 @@
 React = require("react")
-ChannelListItem = require("./ChannelListItem")
+ChannelListItem = require("./ChannelListItem").component
 FluxComponent = require("flummox/component")
 
 module.exports = React.createClass
