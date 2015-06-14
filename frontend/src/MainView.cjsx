@@ -1,7 +1,7 @@
 React = require("react")
 FluxComponent = require("flummox/component")
 ChannelList = require("./ChannelList").component
-ChannelForm = require("./ChannelForm")
+ChannelForm = require("./ChannelForm").component
 MessageBox = require("./MessageBox").component
 
 module.exports = React.createClass
